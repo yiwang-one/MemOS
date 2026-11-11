@@ -73,7 +73,6 @@ class Searcher:
         self.use_fulltext = search_strategy.get("fulltext", False) if search_strategy else False
         self.manual_close_internet = manual_close_internet
         self.tokenizer = tokenizer
-        self._usage_executor = ContextThreadPoolExecutor(max_workers=4, thread_name_prefix="usage")
 
     def _maybe_rerank(
         self,
@@ -182,7 +181,6 @@ class Searcher:
             include_preference_memory,
             pref_mem_top_k,
         )
-        self._update_usage_history(final_results, info, user_name)
         return final_results
 
     @timed
@@ -1317,43 +1315,6 @@ class Searcher:
             ):
                 filtered_results.append(item)
         return filtered_results
-
-    @timed
-    def _update_usage_history(self, items, info, user_name: str | None = None):
-        """Update usage history in graph DB
-        now_time = datetime.now().isoformat()
-        info_copy = dict(info or {})
-        info_copy.pop("chat_history", None)
-        usage_record = json.dumps({"time": now_time, "info": info_copy})
-        payload = []
-        for it in items:
-            try:
-                item_id = getattr(it, "id", None)
-                md = getattr(it, "metadata", None)
-                if md is None:
-                    continue
-                if not hasattr(md, "usage") or md.usage is None:
-                    md.usage = []
-                md.usage.append(usage_record)
-                if item_id:
-                    payload.append((item_id, list(md.usage)))
-            except Exception:
-                logger.exception("[USAGE] snapshot item failed")
-
-        if payload:
-            self._usage_executor.submit(
-                self._update_usage_history_worker, payload, usage_record, user_name
-            )
-        """
-
-    def _update_usage_history_worker(
-        self, payload, usage_record: str, user_name: str | None = None
-    ):
-        try:
-            for item_id, usage_list in payload:
-                self.graph_store.update_node(item_id, {"usage": usage_list}, user_name=user_name)
-        except Exception:
-            logger.exception("[USAGE] update usage failed")
 
     def _cot_query(
         self,

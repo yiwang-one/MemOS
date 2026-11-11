@@ -168,3 +168,41 @@ def test_deduplicate_rawfile_results_uses_knowledge_summary_ids(mock_searcher):
 
     assert result == [raw_file]
     mock_searcher.graph_store.get_edges.assert_not_called()
+
+
+def test_searcher_constructor_creates_no_thread_pool():
+    """The constructor must not spin up the removed usage-history executor.
+
+    The old ``_usage_executor`` was only ever referenced by a method whose
+    body was commented out inside its docstring, so every Searcher instance
+    paid for a dead 4-worker pool on every construction.
+    """
+    s = Searcher(MagicMock(), MagicMock(), MagicMock(), MagicMock(spec=BaseReranker))
+    assert not hasattr(s, "_usage_executor")
+    assert not hasattr(s, "_update_usage_history")
+    assert not hasattr(s, "_update_usage_history_worker")
+
+
+def test_post_retrieve_sorts_and_trims_without_usage_side_effects(mock_searcher):
+    results = [
+        make_item("low", 0.1),
+        make_item("high", 0.9),
+        make_item("mid", 0.5),
+    ]
+
+    out = mock_searcher.post_retrieve(list(results), top_k=2)
+
+    assert [item.memory for item in out] == ["high", "mid"]
+    # Usage-history updates were a no-op before removal; no graph writes may
+    # be issued from the post-retrieve path.
+    mock_searcher.graph_store.update_node.assert_not_called()
+
+
+def test_post_retrieve_preserves_usage_metadata(mock_searcher):
+    item, _ = make_item("mem", 0.5)
+    item.metadata.usage = ["existing-record"]
+
+    out = mock_searcher.post_retrieve([(item, 0.5)], top_k=1)
+
+    assert len(out) == 1
+    assert out[0].metadata.usage == ["existing-record"]
